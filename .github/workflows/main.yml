@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Pobierz projekt Luna
+      - name: Pobierz repozytorium
         uses: actions/checkout@v4
 
       - name: Ustaw JDK 17
@@ -20,17 +20,64 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Ustaw Gradle
+      - name: Ustaw Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Sprawdź projekt
+      - name: Znajdź ZIP Luny
         run: |
-          echo "=== ZAWARTOŚĆ REPOZYTORIUM ==="
+          set -e
+          echo "=== PLIKI W REPOZYTORIUM ==="
           find . -maxdepth 3 -type f | sort
 
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "BŁĄD: Nie znaleziono ZIP-a Luny."
+            exit 1
+          fi
+
+          echo "Znaleziono: $ZIP_FILE"
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
+
+      - name: Rozpakuj Lunę
+        run: |
+          set -e
+
+          rm -rf luna_source
+          mkdir -p luna_source
+
+          unzip -o "$ZIP_FILE" -d luna_source
+
+          echo "=== ZAWARTOŚĆ ZIP-A ==="
+          find luna_source -maxdepth 6 -type f | sort
+
+      - name: Znajdź katalog projektu Gradle
+        run: |
+          set -e
+
+          PROJECT_DIR=$(find luna_source -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "BŁĄD: ZIP Luny nie zawiera settings.gradle."
+            exit 1
+          fi
+
+          echo "=== PROJEKT LUNY ==="
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Sprawdź projekt Luny
+        run: |
+          echo "=== PLIKI PROJEKTU ==="
+          find "$PROJECT_DIR" -maxdepth 4 -type f | sort
+
       - name: Zbuduj Lunę
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
           gradle :app:assembleDebug --stacktrace
 
@@ -38,4 +85,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Luna-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
